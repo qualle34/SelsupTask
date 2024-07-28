@@ -1,6 +1,9 @@
 package com.qualle.salesup.api;
 
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -8,55 +11,85 @@ import java.net.http.HttpResponse;
 import java.net.http.HttpResponse.BodyHandlers;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Objects;
 import java.util.Queue;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public class Main {
+public class CrptApi {
 
     public static void main(String[] args) {
 
+        ObjectMapper mapper = new ObjectMapper();
         CallLimiter callLimiter = new CallLimiter(Duration.ofSeconds(10), 30, 1000);
         HttpClient httpClient = HttpClient.newHttpClient();
-        CrptClient crptClient = new CrptClient(httpClient, "https://ismp.crpt.ru/api/v3", callLimiter);
+        CrptClient crptClient = new CrptClient(httpClient, mapper, "https://ismp.crpt.ru/api/v3", callLimiter);
+        CrptService crptService = new CrptService(crptClient, mapper);
 
         for (int i = 0; i < 100; i ++) {
-            crptClient.sendDocument(REQUEST_BODY);
+            crptService.sendDocument();
+        }
+    }
+
+    public static class CrptService {
+
+        CrptClient crptClient;
+        ObjectMapper mapper;
+
+        public CrptService(CrptClient crptClient, ObjectMapper mapper) {
+            this.crptClient = crptClient;
+            this.mapper = mapper;
+        }
+
+        public void sendDocument() {
+            Document document = buildDocument();
+            crptClient.sendDocument(document);
+        }
+
+        private Document buildDocument() {
+            // example of document creation logic or receiving from another service
+            try {
+                return mapper.readValue(EXAMPLE, Document.class);
+            } catch (JsonProcessingException e) {
+               throw new RuntimeException("Exception while parsing document");
+            }
         }
     }
 
     public static class CrptClient {
 
         private final HttpClient httpClient;
+        private final ObjectMapper mapper;
         private final String url;
         private final CallLimiter callLimiter;
 
-        public CrptClient(HttpClient httpClient, String url, CallLimiter callLimiter) {
+        public CrptClient(HttpClient httpClient, ObjectMapper mapper, String url, CallLimiter callLimiter) {
             this.httpClient = httpClient;
+            this.mapper = mapper;
             this.url = url;
             this.callLimiter = callLimiter;
         }
 
-        public void sendDocument(String document) {
+        public void sendDocument(Document document) {
             callLimiter.wrap(() -> sendDocumentWithoutLimit(document));
         }
 
-        private void sendDocumentWithoutLimit(String document) {
+        private void sendDocumentWithoutLimit(Document document) {
 
             try {
                 log("Sending request for document creation");
+
+                String body = mapper.writeValueAsString(document);
+
                 HttpRequest request = HttpRequest.newBuilder()
                     .uri(new URI(url + "/lk/documents/create"))
-                    .POST(HttpRequest.BodyPublishers.ofString(document))
+                    .POST(HttpRequest.BodyPublishers.ofString(body))
                     .build();
 
                 HttpResponse<String> response = httpClient.send(request, BodyHandlers.ofString());
-//                verify(response);
+                verify(response);
 
                 log("Document was successfully created");
             } catch (InterruptedException e) {
@@ -128,7 +161,39 @@ public class Main {
         System.out.println(LocalDateTime.now() + ": " + message);
     }
 
-    private static final String REQUEST_BODY = """
+    public static class Document {
+        public Description description;
+        public String doc_id;
+        public String doc_status;
+        public String doc_type;
+        public boolean importRequest;
+        public String owner_inn;
+        public String participant_inn;
+        public String producer_inn;
+        public String production_date;
+        public String production_type;
+        public List<Product> products;
+        public String reg_date;
+        public String reg_number;
+
+        public static class Product {
+            public String certificate_document;
+            public String certificate_document_date;
+            public String certificate_document_number;
+            public String owner_inn;
+            public String producer_inn;
+            public String production_date;
+            public String tnved_code;
+            public String uit_code;
+            public String uitu_code;
+        }
+
+        public static class Description {
+            public String participantInn;
+        }
+    }
+
+    private static final String EXAMPLE = """
             {
             "description": {
                 "participantInn": "string"
