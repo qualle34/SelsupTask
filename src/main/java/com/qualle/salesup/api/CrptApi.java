@@ -12,11 +12,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.Callable;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class CrptApi {
@@ -27,7 +23,8 @@ public class CrptApi {
         ObjectMapper mapper = new ObjectMapper();
         HttpClient httpClient = HttpClient.newHttpClient();
 
-        CallLimiter callLimiter = new CallLimiter(Duration.ofSeconds(1), 10);
+        // We can send 10 requests per 1 second
+        CallLimiter callLimiter = new CallLimiter(Duration.ofSeconds(1),  10);
 
         CrptClient crptClient = new CrptClient(httpClient, mapper, "https://ismp.crpt.ru/api/v3", callLimiter);
         CrptService crptService = new CrptService(crptClient, mapper);
@@ -93,8 +90,17 @@ public class CrptApi {
             this.callLimiter = callLimiter;
         }
 
-        public void sendDocument(Document document) {
-            callLimiter.wrap(() -> sendDocumentWithoutLimit(document));
+        public int sendDocument(Document document) {
+            return callLimiter.wrap(() -> sendDocumentWithoutLimit(document));
+        }
+
+        // just example of void method usage
+        public void sendDocumentWithoutResult(Document document) {
+            callLimiter.wrap(() -> sendDocumentWithoutResultAndLimit(document));
+        }
+
+        private void sendDocumentWithoutResultAndLimit(Document document) {
+            sendDocumentWithoutLimit(document);
         }
 
         private int sendDocumentWithoutLimit(Document document) {
@@ -140,8 +146,18 @@ public class CrptApi {
             log("CallLimiter initialized");
         }
 
+        // If we need result of call
         public <T> T wrap(Callable<T> callable) {
-            return new LimitedCall<>(semaphore, callable).call();
+            return new LimitedCall<>(semaphore, callable)
+                    .call();
+        }
+
+        // If we use void methods
+        public void wrap(Runnable runnable) {
+            wrap(() -> {
+                runnable.run();
+                return null;
+            });
         }
 
         private void reset() {
@@ -156,7 +172,6 @@ public class CrptApi {
             }
         }
 
-        // For void calls we can use Runnable
         private static class LimitedCall<T> implements Callable<T> {
 
             private final Semaphore semaphore;
